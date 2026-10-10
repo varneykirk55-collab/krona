@@ -46,14 +46,18 @@ export function PokerTable() {
           <sphereGeometry args={[0.018, 8, 6]} />
         </mesh>
       ))}
-      {/* brass corner fittings */}
-      {[
-        [-(TABLE.railRx - TABLE.railRz), TABLE.railRz + 0.14],
-        [TABLE.railRx - TABLE.railRz, TABLE.railRz + 0.14],
-      ].map(([x, z], i) => (
-        <group key={i} position={[x, TABLE.railY - 0.2, z]}>
+      {/* brass corner fittings: thin trim arcs hugging the rounded end caps
+          of the rail band. Each half-torus is centred on its cap circle
+          (x = ±(railRx - railRz), z = 0) and yawed so the semicircle bulges
+          outward along ±X, sitting proud of the band's outer wall. */}
+      {[-1, 1].map((s) => (
+        <group
+          key={s}
+          position={[s * (TABLE.railRx - TABLE.railRz), 0.8, 0]}
+          rotation={[0, (s * Math.PI) / 2, 0]}
+        >
           <mesh rotation={[Math.PI / 2, 0, 0]} material={MATS.brass}>
-            <torusGeometry args={[TABLE.railRz + 0.07, 0.016, 6, 22, Math.PI]} />
+            <torusGeometry args={[TABLE.railRz + 0.17, 0.012, 6, 22, Math.PI]} />
           </mesh>
         </group>
       ))}
@@ -63,7 +67,8 @@ export function PokerTable() {
         <mesh position={[0, 0.42, 0]} material={MATS.darkOak} castShadow receiveShadow>
           <cylinderGeometry args={[0.42, 0.56, 0.5, 16]} />
         </mesh>
-        <mesh position={[0, 0.66, 0]} material={MATS.oak} castShadow receiveShadow>
+        {/* top ends at y=0.70, tucked under the felt (felt underside 0.72) */}
+        <mesh position={[0, 0.54, 0]} material={MATS.oak} castShadow receiveShadow>
           <cylinderGeometry args={[0.24, 0.42, 0.32, 16]} />
         </mesh>
         <mesh position={[0, 0.2, 0]} material={MATS.darkOak} castShadow receiveShadow>
@@ -85,9 +90,10 @@ export function PokerTable() {
             </group>
           );
         })}
-        {/* carved rune ring on the column */}
-        <mesh position={[0, 0.46, 0]} material={MATS.brass}>
-          <torusGeometry args={[0.47, 0.014, 6, 24]} />
+        {/* carved rune ring on the column (flat, wrapped around the column;
+            column radius at y=0.46 is ~0.48) */}
+        <mesh position={[0, 0.46, 0]} rotation={[Math.PI / 2, 0, 0]} material={MATS.brass}>
+          <torusGeometry args={[0.48, 0.014, 6, 24]} />
         </mesh>
       </group>
 
