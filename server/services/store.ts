@@ -139,11 +139,14 @@ export class Store {
   }
   async retrieveMemory(ownerId: string, q: string, includeSensitive = false, limit = 12): Promise<Memory[]> {
     const settings = await this.settings(ownerId);
+    // Natural questions contain words absent from the memory; OR lexical terms and rank
+    // matches instead of requiring every word in a question to occur in the stored fact.
+    const lexical = (q.match(/[\p{L}\p{N}]+/gu) || ['preferences']).slice(0,30).join(' OR ');
     return normalize((await this.db.query(`SELECT id,content,category,confidence,subject,project_id,source,updated_at,conflict_group,sensitive FROM memories
       WHERE owner_id=$1 AND NOT (category=ANY($3::text[])) AND confidence <> 'outdated'
-      AND ($4 OR NOT sensitive) AND (search_vector @@ plainto_tsquery('english',$2) OR content ILIKE $5 OR category='preferences')
-      ORDER BY ts_rank(search_vector,plainto_tsquery('english',$2)) DESC, updated_at DESC LIMIT $6`,
-      [ownerId, q || 'preferences', settings.disabled_memory_categories, includeSensitive,`%${escapeLike(q || 'preferences')}%`,limit])).rows);
+      AND ($4 OR NOT sensitive) AND (search_vector @@ websearch_to_tsquery('english',$2) OR content ILIKE $5 OR category='preferences')
+      ORDER BY ts_rank(search_vector,websearch_to_tsquery('english',$2)) DESC, updated_at DESC LIMIT $6`,
+      [ownerId, lexical, settings.disabled_memory_categories, includeSensitive,`%${escapeLike(q || 'preferences')}%`,limit])).rows);
   }
   async createMemory(ownerId: string, raw: unknown, conversationId: string | null = null): Promise<Memory & { deduplicated?: boolean }> {
     const input = memoryInput.parse(raw), hash = sha256(input.content.toLowerCase().replace(/\s+/g,' ').trim());
