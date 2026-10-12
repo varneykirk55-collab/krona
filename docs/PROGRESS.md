@@ -24,6 +24,10 @@ Date: 2026-10-12. This assignment authorizes development/testing and deployment 
 - Dashboard/transport/native PostgreSQL checkpoint: completed 76/76 tests, 6/6 desktop+iPhone-sized management E2E and production build. Initial accessibility, rate-limit and incorrect TwiML test assertion failures were corrected.
 - Final hardening/documentation verification: `npm run verify` passed **83/83 tests** (10 files, including **4 actual PostgreSQL 16.14 tests**); production build passed; full `npm run test:e2e` passed **10/10** (six management/privacy plus four explicitly mock lifecycle cases); audit reported **0 vulnerabilities**. No automated failed/skipped cases in the final run.
 
+## Verified remote save
+
+Code checkpoint **`33b741b4c80b3f10f5a263796bc5941919be5b5d`** was committed and pushed to `arena/85555d7e-krona`. The GitHub API remote head matched the local SHA exactly. Repository verified private at <https://github.com/varneykirk55-collab/krona>; code is on <https://github.com/varneykirk55-collab/krona/tree/arena/85555d7e-krona>. `main` was not changed. Hosted CI/deployment was not triggered or claimed.
+
 ## Actual operating state
 
 The local preview runs on port 8080, with disk-backed development PostgreSQL/PGlite, no initialized main owner, no seeded main records and both live switches off. Test owner/records exist only in disposable test fixtures. It is not an external production deployment. Latest preview process `krona-companion-e2a638e5` is running on 0.0.0.0:8080. Root/liveness/readiness all returned 200, setup is available, and unauthorized records/docs return 401. No external production URL is claimed.
