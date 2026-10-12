@@ -12,10 +12,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "tsx scripts/prepare-browser.ts && playwright test",
     "db:migrate": "tsx scripts/migrate.ts",
     "setup:token": "tsx scripts/setup-token.ts",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm test && npm run build",
+    "format": "prettier --write src server shared scripts tests *.config.ts *.json docs README.md .github",
+    "format:check": "prettier --check src server shared scripts tests *.config.ts *.json docs README.md .github"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
@@ -30,8 +32,10 @@
     "luxon": "^3.7.2",
     "openai": "^6.0.0",
     "pg": "^8.16.3",
+    "proper-lockfile": "^4.1.2",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "tsx": "^4.23.15",
     "twilio": "^5.10.0",
     "ws": "^8.18.3",
     "zod": "^4.1.11"
@@ -42,11 +46,13 @@
     "@types/luxon": "^3.7.1",
     "@types/node": "^22.19.17",
     "@types/pg": "^8.15.5",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "5.1.1",
-    "tsx": "^4.20.6",
+    "embedded-postgres": "^16.14.0-beta.17",
+    "prettier": "^3.9.10",
     "typescript": "5.9.3",
     "vite": "^7.3.7",
     "vitest": "^5.0.3"

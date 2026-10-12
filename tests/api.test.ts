@@ -1,25 +1,341 @@
-import {beforeAll,afterAll,describe,expect,it} from 'vitest';
-import {fixture} from './helpers.js';
-import {buildApp} from '../server/app.js';
-let f:Awaited<ReturnType<typeof fixture>>,services:Awaited<ReturnType<typeof buildApp>>,cookie:string,csrf:string;
-beforeAll(async()=>{f=await fixture();services=await buildApp({db:f.db,config:f.config,logger:false});await services.app.ready();const login=await services.app.inject({method:'POST',url:'/api/auth/login',payload:{email:f.owner.email,password:'secure-test-password-123'}});cookie=login.cookies[0].name+'='+login.cookies[0].value;csrf=login.json().csrf;});
-afterAll(async()=>{await services.app.close();await f.close();});
-const headers=()=>({cookie,'x-csrf-token':csrf});
-describe('Authenticated HTTP API integration (real DB, live providers disabled)',()=>{
-  it('denies unauthenticated access to every private collection',async()=>{for(const url of ['/api/tasks','/api/projects','/api/memories','/api/settings','/api/calls','/api/conversations','/api/schedules','/api/data/export','/api/status','/api/overview'])expect((await services.app.inject({url})).statusCode).toBe(401);});
-  it('sets HttpOnly and SameSite cookies and authenticates the owner',async()=>{const me=await services.app.inject({url:'/api/auth/me',headers:headers()});expect(me.statusCode).toBe(200);expect(me.json().owner.email).toBe(f.owner.email);const login=await services.app.inject({method:'POST',url:'/api/auth/login',payload:{email:f.owner.email,password:'secure-test-password-123'}});expect(login.headers['set-cookie']).toContain('HttpOnly');expect(login.headers['set-cookie']).toContain('SameSite=Strict');});
-  it('rejects writes without CSRF or from an untrusted origin',async()=>{expect((await services.app.inject({method:'POST',url:'/api/tasks',headers:{cookie},payload:{title:'No CSRF'}})).statusCode).toBe(403);expect((await services.app.inject({method:'POST',url:'/api/tasks',headers:{...headers(),origin:'https://attacker.example'},payload:{title:'Bad origin'}})).statusCode).toBe(403);});
-  it('does not permit reusing the bootstrap token',async()=>{const r=await services.app.inject({method:'POST',url:'/api/auth/setup',payload:{setup_token:f.config.setupToken,email:'other@example.test',display_name:'Other',password:'another-long-password'}});expect(r.statusCode).toBe(403);});
-  it('creates a real task and overview count, without PATCH resets',async()=>{const r=await services.app.inject({method:'POST',url:'/api/tasks',headers:headers(),payload:{title:'Finish website',priority:'high',due_at:'2026-10-20T13:00:00Z'}});expect(r.statusCode).toBe(201);const id=r.json().id;await services.app.inject({method:'PATCH',url:'/api/tasks/'+id,headers:headers(),payload:{notes:'Payment integration next'}});const task=(await services.app.inject({url:'/api/tasks/'+id,headers:headers()})).json();expect(task.priority).toBe('high');expect(task.due_at).toBe('2026-10-20T13:00:00.000Z');expect((await services.app.inject({url:'/api/overview',headers:headers()})).json().counts.open_tasks).toBe(1);});
-  it('validates input and rejects invented properties',async()=>{const r=await services.app.inject({method:'POST',url:'/api/tasks',headers:headers(),payload:{title:'',owner_id:'someone else'}});expect(r.statusCode).toBe(400);expect(r.json().error).toBe('VALIDATION_ERROR');});
-  it('supports project milestones, blockers and next actions',async()=>{const p=await services.app.inject({method:'POST',url:'/api/projects',headers:headers(),payload:{name:'Business website',blockers:['Payment integration'],next_action:'Test checkout'}});expect(p.statusCode).toBe(201);const r=await services.app.inject({method:'PATCH',url:'/api/projects/'+p.json().id,headers:headers(),payload:{status:'archived'}});expect(r.json().status).toBe('archived');});
-  it('saves, searches, corrects and physically deletes memories',async()=>{const r=await services.app.inject({method:'POST',url:'/api/memories',headers:headers(),payload:{content:'Prefer morning planning',category:'preferences'}});const id=r.json().id;const search=await services.app.inject({url:'/api/memories?q=morning',headers:headers()});expect(search.json().some((m:any)=>m.id===id)).toBe(true);expect((await services.app.inject({method:'PATCH',url:'/api/memories/'+id,headers:headers(),payload:{content:'Prefer evening planning'}})).statusCode).toBe(200);await services.app.inject({method:'DELETE',url:'/api/memories/'+id,headers:headers()});expect((await f.db.query('SELECT id FROM memories WHERE id=$1',[id])).rows).toHaveLength(0);});
-  it('does not simulate an AI conversation without configuration',async()=>{const r=await services.app.inject({method:'POST',url:'/api/conversations/message',headers:headers(),payload:{message:'Hello'}});expect(r.statusCode).toBe(503);expect(r.json().error).toBe('AI_NOT_CONFIGURED');expect((await f.store.listConversations(f.owner.id)).length).toBe(0);});
-  it('reports measured DB health and honestly labels missing providers',async()=>{const r=await services.app.inject({url:'/api/status',headers:headers()});expect(r.json().database.state).toBe('healthy');expect(r.json().ai.state).toBe('unconfigured');expect(r.json().telephony.state).toBe('unconfigured');expect(r.json().live_calling_enabled).toBe(false);expect(r.json().scheduler.state).toBe('disabled');});
-  it('cannot enable outgoing calls without explicit consent and verified phone',async()=>{const noConsent=await services.app.inject({method:'PATCH',url:'/api/settings',headers:headers(),payload:{outbound_enabled:true}});expect(noConsent.statusCode).toBe(403);const unverified=await services.app.inject({method:'PATCH',url:'/api/settings',headers:headers(),payload:{outbound_enabled:true,consent_to_outbound:true}});expect(unverified.statusCode).toBe(409);});
-  it('requires password confirmation to set a stronger telephone PIN',async()=>{const r=await services.app.inject({method:'POST',url:'/api/auth/phone-pin',headers:headers(),payload:{password:'incorrect',pin:'749218'}});expect(r.statusCode).toBe(401);const good=await services.app.inject({method:'POST',url:'/api/auth/phone-pin',headers:headers(),payload:{password:'secure-test-password-123',pin:'749218'}});expect(good.statusCode).toBe(200);const settings=(await services.app.inject({url:'/api/settings',headers:headers()})).json();expect(settings.owner.has_phone_pin).toBe(true);expect(JSON.stringify(settings)).not.toContain('password_hash');expect(JSON.stringify(settings)).not.toContain('phone_pin_hash');});
-  it('enforces exact-scope approval and keeps third-party executors disabled',async()=>{const p=await services.app.inject({method:'POST',url:'/api/actions',headers:headers(),payload:{kind:'message.send',title:'Message a business',payload:{recipient:'business@example.test',body:'Request an appointment'}}});const a=p.json();expect((await services.app.inject({method:'POST',url:`/api/actions/${a.id}/execute`,headers:headers()})).statusCode).toBe(403);expect((await services.app.inject({method:'POST',url:`/api/actions/${a.id}/approve`,headers:headers(),payload:{scope_hash:a.scope_hash}})).statusCode).toBe(200);expect((await services.app.inject({method:'POST',url:`/api/actions/${a.id}/execute`,headers:headers()})).statusCode).toBe(501);});
-  it('requires reauthentication and explicit authorization for spending',async()=>{const p=await services.app.inject({method:'POST',url:'/api/actions',headers:headers(),payload:{kind:'money.spend',title:'Test high-impact proposal',payload:{payee:'Test merchant',amount:5,currency:'USD',purpose:'Test only'}}});const a=p.json();expect(a.risk).toBe('high');const r=await services.app.inject({method:'POST',url:`/api/actions/${a.id}/approve`,headers:headers(),payload:{scope_hash:a.scope_hash}});expect(r.statusCode).toBe(403);const ok=await services.app.inject({method:'POST',url:`/api/actions/${a.id}/approve`,headers:headers(),payload:{scope_hash:a.scope_hash,password:'secure-test-password-123',authorization:'AUTHORIZE'}});expect(ok.statusCode).toBe(200);expect((await services.app.inject({method:'POST',url:`/api/actions/${a.id}/execute`,headers:headers()})).statusCode).toBe(501);});
-  it('exports personal records but never hashes or sessions',async()=>{const r=await services.app.inject({url:'/api/data/export',headers:headers()});expect(r.statusCode).toBe(200);const data=r.json();expect(data.tasks.some((t:any)=>t.title==='Finish website')).toBe(true);expect(JSON.stringify(data)).not.toContain('password_hash');expect(data.sessions).toBeUndefined();});
-  it('deletes account data, revokes sessions and prevents bootstrap reuse',async()=>{const r=await services.app.inject({method:'POST',url:'/api/data/erase',headers:headers(),payload:{password:'secure-test-password-123',confirmation:'DELETE ALL PERSONAL DATA'}});expect(r.statusCode).toBe(200);for(const table of ['owners','sessions','tasks','projects','memories','actions','audit_logs'])expect((await f.db.query(`SELECT count(*)::int AS count FROM ${table}`)).rows[0].count).toBe(0);expect((await services.app.inject({url:'/api/tasks',headers:headers()})).statusCode).toBe(401);expect((await services.auth.status()).setup_available).toBe(false);});
+import { beforeAll, afterAll, describe, expect, it } from 'vitest';
+import { fixture } from './helpers.js';
+import { buildApp } from '../server/app.js';
+let f: Awaited<ReturnType<typeof fixture>>,
+  services: Awaited<ReturnType<typeof buildApp>>,
+  cookie: string,
+  csrf: string;
+beforeAll(async () => {
+  f = await fixture();
+  services = await buildApp({ db: f.db, config: f.config, logger: false });
+  await services.app.ready();
+  const login = await services.app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { email: f.owner.email, password: 'secure-test-password-123' },
+  });
+  cookie = login.cookies[0].name + '=' + login.cookies[0].value;
+  csrf = login.json().csrf;
+});
+afterAll(async () => {
+  await services.app.close();
+  await f.close();
+});
+const headers = () => ({ cookie, 'x-csrf-token': csrf });
+describe('Authenticated HTTP API integration (real DB, live providers disabled)', () => {
+  it('denies unauthenticated access to every private collection', async () => {
+    for (const url of [
+      '/api/tasks',
+      '/api/projects',
+      '/api/memories',
+      '/api/settings',
+      '/api/calls',
+      '/api/conversations',
+      '/api/schedules',
+      '/api/data/export',
+      '/api/status',
+      '/api/overview',
+    ])
+      expect((await services.app.inject({ url })).statusCode).toBe(401);
+  });
+  it('sets HttpOnly and SameSite cookies and authenticates the owner', async () => {
+    const me = await services.app.inject({ url: '/api/auth/me', headers: headers() });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().owner.email).toBe(f.owner.email);
+    const login = await services.app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: f.owner.email, password: 'secure-test-password-123' },
+    });
+    expect(login.headers['set-cookie']).toContain('HttpOnly');
+    expect(login.headers['set-cookie']).toContain('SameSite=Strict');
+  });
+  it('rejects writes without CSRF or from an untrusted origin', async () => {
+    expect(
+      (
+        await services.app.inject({
+          method: 'POST',
+          url: '/api/tasks',
+          headers: { cookie },
+          payload: { title: 'No CSRF' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await services.app.inject({
+          method: 'POST',
+          url: '/api/tasks',
+          headers: { ...headers(), origin: 'https://attacker.example' },
+          payload: { title: 'Bad origin' },
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
+  it('does not permit reusing the bootstrap token', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/auth/setup',
+      payload: {
+        setup_token: f.config.setupToken,
+        email: 'other@example.test',
+        display_name: 'Other',
+        password: 'another-long-password',
+      },
+    });
+    expect(r.statusCode).toBe(403);
+  });
+  it('creates a real task and overview count, without PATCH resets', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      headers: headers(),
+      payload: { title: 'Finish website', priority: 'high', due_at: '2026-10-20T13:00:00Z' },
+    });
+    expect(r.statusCode).toBe(201);
+    const id = r.json().id;
+    await services.app.inject({
+      method: 'PATCH',
+      url: '/api/tasks/' + id,
+      headers: headers(),
+      payload: { notes: 'Payment integration next' },
+    });
+    const task = (
+      await services.app.inject({ url: '/api/tasks/' + id, headers: headers() })
+    ).json();
+    expect(task.priority).toBe('high');
+    expect(task.due_at).toBe('2026-10-20T13:00:00.000Z');
+    expect(
+      (await services.app.inject({ url: '/api/overview', headers: headers() })).json().counts
+        .open_tasks,
+    ).toBe(1);
+  });
+  it('validates input and rejects invented properties', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      headers: headers(),
+      payload: { title: '', owner_id: 'someone else' },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toBe('VALIDATION_ERROR');
+  });
+  it('supports project milestones, blockers and next actions', async () => {
+    const p = await services.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: headers(),
+      payload: {
+        name: 'Business website',
+        blockers: ['Payment integration'],
+        next_action: 'Test checkout',
+      },
+    });
+    expect(p.statusCode).toBe(201);
+    const r = await services.app.inject({
+      method: 'PATCH',
+      url: '/api/projects/' + p.json().id,
+      headers: headers(),
+      payload: { status: 'archived' },
+    });
+    expect(r.json().status).toBe('archived');
+  });
+  it('saves, searches, corrects and physically deletes memories', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/memories',
+      headers: headers(),
+      payload: { content: 'Prefer morning planning', category: 'preferences' },
+    });
+    const id = r.json().id;
+    const search = await services.app.inject({
+      url: '/api/memories?q=morning',
+      headers: headers(),
+    });
+    expect(search.json().some((m: any) => m.id === id)).toBe(true);
+    expect(
+      (
+        await services.app.inject({
+          method: 'PATCH',
+          url: '/api/memories/' + id,
+          headers: headers(),
+          payload: { content: 'Prefer evening planning' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    await services.app.inject({ method: 'DELETE', url: '/api/memories/' + id, headers: headers() });
+    expect((await f.db.query('SELECT id FROM memories WHERE id=$1', [id])).rows).toHaveLength(0);
+  });
+  it('does not simulate an AI conversation without configuration', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/conversations/message',
+      headers: headers(),
+      payload: { message: 'Hello' },
+    });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().error).toBe('AI_NOT_CONFIGURED');
+    expect((await f.store.listConversations(f.owner.id)).length).toBe(0);
+  });
+  it('reports measured DB health and honestly labels missing providers', async () => {
+    const r = await services.app.inject({ url: '/api/status', headers: headers() });
+    expect(r.json().database.state).toBe('healthy');
+    expect(r.json().ai.state).toBe('unconfigured');
+    expect(r.json().telephony.state).toBe('unconfigured');
+    expect(r.json().live_calling_enabled).toBe(false);
+    expect(r.json().scheduler.state).toBe('disabled');
+  });
+  it('cannot enable outgoing calls without explicit consent and verified phone', async () => {
+    const noConsent = await services.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: headers(),
+      payload: { outbound_enabled: true },
+    });
+    expect(noConsent.statusCode).toBe(403);
+    const unverified = await services.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      headers: headers(),
+      payload: { outbound_enabled: true, consent_to_outbound: true },
+    });
+    expect(unverified.statusCode).toBe(409);
+  });
+  it('requires password confirmation to set a stronger telephone PIN', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/auth/phone-pin',
+      headers: headers(),
+      payload: { password: 'incorrect', pin: '749218' },
+    });
+    expect(r.statusCode).toBe(401);
+    const good = await services.app.inject({
+      method: 'POST',
+      url: '/api/auth/phone-pin',
+      headers: headers(),
+      payload: { password: 'secure-test-password-123', pin: '749218' },
+    });
+    expect(good.statusCode).toBe(200);
+    const settings = (
+      await services.app.inject({ url: '/api/settings', headers: headers() })
+    ).json();
+    expect(settings.owner.has_phone_pin).toBe(true);
+    expect(JSON.stringify(settings)).not.toContain('password_hash');
+    expect(JSON.stringify(settings)).not.toContain('phone_pin_hash');
+  });
+  it('enforces exact-scope approval and keeps third-party executors disabled', async () => {
+    const p = await services.app.inject({
+      method: 'POST',
+      url: '/api/actions',
+      headers: headers(),
+      payload: {
+        kind: 'message.send',
+        title: 'Message a business',
+        payload: { recipient: 'business@example.test', body: 'Request an appointment' },
+      },
+    });
+    const a = p.json();
+    expect(
+      (
+        await services.app.inject({
+          method: 'POST',
+          url: `/api/actions/${a.id}/execute`,
+          headers: headers(),
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await services.app.inject({
+          method: 'POST',
+          url: `/api/actions/${a.id}/approve`,
+          headers: headers(),
+          payload: { scope_hash: a.scope_hash },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await services.app.inject({
+          method: 'POST',
+          url: `/api/actions/${a.id}/execute`,
+          headers: headers(),
+        })
+      ).statusCode,
+    ).toBe(501);
+  });
+  it('requires reauthentication and explicit authorization for spending', async () => {
+    const p = await services.app.inject({
+      method: 'POST',
+      url: '/api/actions',
+      headers: headers(),
+      payload: {
+        kind: 'money.spend',
+        title: 'Test high-impact proposal',
+        payload: { payee: 'Test merchant', amount: 5, currency: 'USD', purpose: 'Test only' },
+      },
+    });
+    const a = p.json();
+    expect(a.risk).toBe('high');
+    const r = await services.app.inject({
+      method: 'POST',
+      url: `/api/actions/${a.id}/approve`,
+      headers: headers(),
+      payload: { scope_hash: a.scope_hash },
+    });
+    expect(r.statusCode).toBe(403);
+    const ok = await services.app.inject({
+      method: 'POST',
+      url: `/api/actions/${a.id}/approve`,
+      headers: headers(),
+      payload: {
+        scope_hash: a.scope_hash,
+        password: 'secure-test-password-123',
+        authorization: 'AUTHORIZE',
+      },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(
+      (
+        await services.app.inject({
+          method: 'POST',
+          url: `/api/actions/${a.id}/execute`,
+          headers: headers(),
+        })
+      ).statusCode,
+    ).toBe(501);
+  });
+  it('exports personal records but never hashes or sessions', async () => {
+    const r = await services.app.inject({ url: '/api/data/export', headers: headers() });
+    expect(r.statusCode).toBe(200);
+    const data = r.json();
+    expect(data.tasks.some((t: any) => t.title === 'Finish website')).toBe(true);
+    expect(JSON.stringify(data)).not.toContain('password_hash');
+    expect(data.sessions).toBeUndefined();
+  });
+  it('deletes account data, revokes sessions and prevents bootstrap reuse', async () => {
+    const r = await services.app.inject({
+      method: 'POST',
+      url: '/api/data/erase',
+      headers: headers(),
+      payload: { password: 'secure-test-password-123', confirmation: 'DELETE ALL PERSONAL DATA' },
+    });
+    expect(r.statusCode).toBe(200);
+    for (const table of [
+      'owners',
+      'sessions',
+      'tasks',
+      'projects',
+      'memories',
+      'actions',
+      'audit_logs',
+    ])
+      expect((await f.db.query(`SELECT count(*)::int AS count FROM ${table}`)).rows[0].count).toBe(
+        0,
+      );
+    expect((await services.app.inject({ url: '/api/tasks', headers: headers() })).statusCode).toBe(
+      401,
+    );
+    expect((await services.auth.status()).setup_available).toBe(false);
+  });
 });

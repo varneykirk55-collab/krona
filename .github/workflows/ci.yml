@@ -1,0 +1,37 @@
+name: Verify companion
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ENABLE_LIVE_AI: 'false'
+      ENABLE_LIVE_CALLS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run verify
+      - run: npm run test:e2e
+      - run: npm audit --omit=dev
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: isolated-test-evidence
+          path: |
+            test-results/
+            .data/e2e-results.json
+            .data/screenshots/
+          retention-days: 7
+# No push trigger or automatic deployment. Owner chooses whether to run hosted CI.

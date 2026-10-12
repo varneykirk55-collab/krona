@@ -1,0 +1,49 @@
+services:
+  database:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: krona
+      POSTGRES_USER: krona
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong database password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U krona -d krona']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No public database port.
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: 'true'
+      DATABASE_SSL: 'false' # Private Docker bridge only; hosted PostgreSQL requires verified TLS.
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - private_runtime:/app/.data
+    # No public backend port; Caddy is the only public entry point.
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set the actual HTTPS hostname}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+volumes:
+  postgres_data:
+  private_runtime:
+  caddy_data:
+  caddy_config:

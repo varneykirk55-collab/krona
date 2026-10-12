@@ -1,0 +1,8 @@
+node_modules
+dist
+.data
+coverage
+test-results
+playwright-report
+package-lock.json
+server/migrations/*.sql
