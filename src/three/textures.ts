@@ -157,58 +157,116 @@ export function knotPattern(repeat: [number, number] = [6, 1]) {
 /* felt                                                                */
 /* ------------------------------------------------------------------ */
 
-/** Deep blue felt with the Swedish flag cross woven into the cloth. */
+/** Rich royal-blue felt: centred Swedish cross inside a gilded knotwork
+ *  medallion, perimeter gold border lines and woven-fabric noise.
+ *  Expects normalised planar UVs (see remapUVsPlanar in materials.ts) so the
+ *  flag appears exactly once, centred, instead of tiling across the cloth. */
 export function feltTexture() {
   const k = "felt";
   if (cache.has(k)) return cache.get(k)!;
-  const W = 1024;
-  const H = 640;
+  const PXM = 500; // px per metre over the 3.24 x 2.04 m felt
+  const W = Math.round(3.24 * PXM);
+  const H = Math.round(2.04 * PXM);
   const { c, ctx } = canvas(W, H);
-  ctx.fillStyle = "#14315e";
+  const cx = W / 2;
+  const cy = H / 2;
+  const straight = 0.6 * PXM;
+
+  const stadiumPath = (r: number) => {
+    ctx.beginPath();
+    ctx.moveTo(cx + straight, cy - r);
+    ctx.lineTo(cx - straight, cy - r);
+    ctx.arc(cx - straight, cy, r, -Math.PI / 2, Math.PI / 2, true);
+    ctx.lineTo(cx + straight, cy + r);
+    ctx.arc(cx + straight, cy, r, Math.PI / 2, -Math.PI / 2, true);
+    ctx.closePath();
+  };
+
+  // royal blue base with a soft pool of light at the centre
+  const base = ctx.createRadialGradient(cx, cy, H * 0.12, cx, cy, W * 0.6);
+  base.addColorStop(0, "#1e4090");
+  base.addColorStop(0.55, "#17357e");
+  base.addColorStop(1, "#0c2058");
+  ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
-  // Swedish cross: vertical at 3/8 width, horizontal at 5/11 height
-  const cx = W * 0.375;
-  const cy = H * 0.455;
-  const band = H * 0.2;
-  ctx.fillStyle = "#f2c53d";
-  ctx.fillRect(cx - band / 2, 0, band, H);
-  ctx.fillRect(0, cy - band * 0.42, W, band * 0.84);
-  // subtle inner shading on the cross so it reads as woven, not printed
-  const g1 = ctx.createLinearGradient(cx - band / 2, 0, cx + band / 2, 0);
-  g1.addColorStop(0, "rgba(0,0,0,0.22)");
-  g1.addColorStop(0.35, "rgba(255,255,255,0.10)");
-  g1.addColorStop(1, "rgba(0,0,0,0.26)");
-  ctx.fillStyle = g1;
-  ctx.fillRect(cx - band / 2, 0, band, H);
-  const g2 = ctx.createLinearGradient(0, cy - band * 0.42, 0, cy + band * 0.42);
-  g2.addColorStop(0, "rgba(0,0,0,0.22)");
-  g2.addColorStop(0.35, "rgba(255,255,255,0.10)");
-  g2.addColorStop(1, "rgba(0,0,0,0.26)");
-  ctx.fillStyle = g2;
-  ctx.fillRect(0, cy - band * 0.42, W, band * 0.84);
+
+  // woven thread grid
+  ctx.globalAlpha = 0.05;
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  for (let y = 0; y < H; y += 3) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.035;
+  ctx.strokeStyle = "#fff";
+  for (let x = 0; x < W; x += 3) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  const gold = "#d9ae4a";
+  // thin double perimeter border lines, close together like stitched gilt
+  ctx.strokeStyle = gold;
+  ctx.globalAlpha = 0.8;
+  ctx.lineWidth = 3.5;
+  stadiumPath(0.87 * PXM);
+  ctx.stroke();
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = 2;
+  stadiumPath(0.83 * PXM);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // standalone Swedish flag, centred, ~28% of the felt width.
+  // Official proportions 16:10 with the cross offset toward the hoist
+  // (5 + 2 + 9 across, 4 + 2 + 4 down).
+  const fw = 0.9 * PXM;
+  const fh = fw * (10 / 16);
+  const fx0 = cx - fw / 2;
+  const fy0 = cy - fh / 2;
+  const u = fw / 16;
+  const v = fh / 10;
+  // flag field: same royal blue family, subtly shaded so it reads as woven-in
+  const field = ctx.createLinearGradient(0, fy0, 0, fy0 + fh);
+  field.addColorStop(0, "#1a3a86");
+  field.addColorStop(1, "#142e6e");
+  ctx.fillStyle = field;
+  ctx.fillRect(fx0, fy0, fw, fh);
+  // golden-yellow Nordic cross
+  const crossGrad = ctx.createLinearGradient(0, fy0, 0, fy0 + fh);
+  crossGrad.addColorStop(0, "#e9be55");
+  crossGrad.addColorStop(0.5, "#f2c53d");
+  crossGrad.addColorStop(1, "#cf9f32");
+  ctx.fillStyle = crossGrad;
+  ctx.fillRect(fx0 + 5 * u, fy0, 2 * u, fh);
+  ctx.fillRect(fx0, fy0 + 4 * v, fw, 2 * v);
+  // thin gilt outline, flat against the cloth
+  ctx.strokeStyle = gold;
+  ctx.globalAlpha = 0.75;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(fx0, fy0, fw, fh);
+  ctx.globalAlpha = 1;
+
   // fabric noise
   const img = ctx.getImageData(0, 0, W, H);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * 26;
+    const n = (Math.random() - 0.5) * 18;
     d[i] = Math.max(0, Math.min(255, d[i] + n));
     d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
     d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n * 0.9));
   }
   ctx.putImageData(img, 0, 0);
-  // fibrous brush strokes
-  ctx.globalAlpha = 0.05;
-  for (let i = 0; i < 2200; i++) {
-    ctx.strokeStyle = Math.random() > 0.5 ? "#ffffff" : "#000000";
-    const x = Math.random() * W;
-    const y = Math.random() * H;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + (Math.random() - 0.5) * 16, y + (Math.random() - 0.5) * 6);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  return finish(c, k, [1, 1]);
+
+  const tex = finish(c, k, [1, 1]);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
 }
 
 /* ------------------------------------------------------------------ */
@@ -403,7 +461,7 @@ export function cardBackTexture() {
     ctx.lineTo(Math.cos(a + 0.4) * 68, Math.sin(a + 0.4) * 68);
     ctx.stroke();
   }
-  // ravens / crowns corner marks
+  // ravens / corners marks
   ctx.fillStyle = "#e6cd8b";
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
@@ -518,9 +576,9 @@ export function furTexture(base: string) {
     const x = Math.random() * S;
     const y = Math.random() * S;
     const len = 6 + Math.random() * 16;
-    const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.1;
-    ctx.strokeStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.13)" : "rgba(0,0,0,0.16)";
-    ctx.lineWidth = 1 + Math.random();
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 0.6;
+    ctx.strokeStyle = Math.random() > 0.5 ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
@@ -529,40 +587,115 @@ export function furTexture(base: string) {
   return finish(c, k, [2, 2]);
 }
 
-export function runeTexture() {
-  const k = "rune";
-  if (cache.has(k)) return cache.get(k)!;
-  const S = 256;
+export function leatherTexture() {
+  const k = "leather";
+  if (cache.has(k)) return cache.get(k)! as any;
+  const S = 512;
   const { c, ctx } = canvas(S, S);
-  ctx.fillStyle = "#20242b";
+  ctx.fillStyle = "#3b2a1e";
   ctx.fillRect(0, 0, S, S);
-  ctx.strokeStyle = "#c9a341";
-  ctx.lineWidth = 3;
-  ctx.font = "700 40px Georgia, serif";
-  ctx.fillStyle = "#c9a341";
-  const runes = ["\u16A0", "\u16A2", "\u16A5", "\u16A7", "\u16AB", "\u16AF", "\u16B1", "\u16B3", "\u16B7"];
-  for (let i = 0; i < 16; i++) {
-    ctx.fillText(runes[Math.floor(Math.random() * runes.length)], (i % 4) * 64 + 12, Math.floor(i / 4) * 64 + 48);
+  for (let i = 0; i < 800; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = 4 + Math.random() * 18;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, "rgba(90,65,40,0.35)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
   }
-  return finish(c, k, [1, 1]);
+  // pores
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  for (let i = 0; i < 4000; i++) {
+    ctx.fillRect(Math.random() * S, Math.random() * S, 1, 1);
+  }
+  const map = finish(c, k + ":map", [2, 2]);
+  // bump
+  const { c: bc, ctx: b } = canvas(S, S);
+  b.fillStyle = "#808080";
+  b.fillRect(0, 0, S, S);
+  for (let i = 0; i < 3000; i++) {
+    b.fillStyle = Math.random() > 0.5 ? "#999" : "#666";
+    b.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+  }
+  const bump = new THREE.CanvasTexture(bc);
+  bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
+  bump.repeat.set(2, 2);
+  cache.set(k, { map, bump } as any);
+  return { map, bump };
 }
 
-/** Simple vertical gradient sky used behind the village windows. */
-export function nightSkyTexture() {
-  const k = "sky";
-  if (cache.has(k)) return cache.get(k)!;
-  const W = 256;
-  const H = 256;
-  const { c, ctx } = canvas(W, H);
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#0a1424");
-  g.addColorStop(0.55, "#1d3348");
-  g.addColorStop(1, "#3d5266");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-  for (let i = 0; i < 90; i++) {
-    ctx.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.6})`;
-    ctx.fillRect(Math.random() * W, Math.random() * H * 0.7, 1.4, 1.4);
+export function carvedBandTexture() {
+  const k = "carvedband";
+  if (cache.has(k)) return cache.get(k)! as any;
+  const S = 512;
+  const { c, ctx } = canvas(S, S);
+  ctx.fillStyle = "#3a2816";
+  ctx.fillRect(0, 0, S, S);
+  // interlace
+  ctx.strokeStyle = "#c9a341";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  for (let i = 0; i < 8; i++) {
+    const y = 32 + i * 60;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x < S; x += 20) {
+      ctx.lineTo(x, y + Math.sin(x * 0.05 + i) * 12);
+    }
+    ctx.stroke();
   }
+  // vertical bands
+  for (let i = 0; i < 6; i++) {
+    const x = 40 + i * 80;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, S);
+    ctx.stroke();
+  }
+  const map = finish(c, k + ":map", [4, 1]);
+  const { c: bc, ctx: b } = canvas(S, S);
+  b.fillStyle = "#808080";
+  b.fillRect(0, 0, S, S);
+  b.strokeStyle = "#aaa";
+  b.lineWidth = 8;
+  for (let i = 0; i < 8; i++) {
+    const y = 32 + i * 60;
+    b.beginPath();
+    b.moveTo(0, y);
+    for (let x = 0; x < S; x += 20) b.lineTo(x, y + Math.sin(x * 0.05 + i) * 12);
+    b.stroke();
+  }
+  const bump = new THREE.CanvasTexture(bc);
+  bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
+  bump.repeat.set(4, 1);
+  cache.set(k, { map, bump } as any);
+  return { map, bump };
+}
+
+export function goldDiscTexture() {
+  const k = "golddisc";
+  if (cache.has(k)) return cache.get(k)!;
+  const S = 128;
+  const { c, ctx } = canvas(S, S);
+  const g = ctx.createRadialGradient(S / 2, S / 2, 4, S / 2, S / 2, S / 2);
+  g.addColorStop(0, "#f0d78a");
+  g.addColorStop(0.5, "#c9a341");
+  g.addColorStop(1, "#8a6a20");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, S / 2 - 2, 0, Math.PI * 2);
+  ctx.fill();
+  // knot
+  ctx.strokeStyle = "#5a4010";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, 28, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, 16, 0, Math.PI * 2);
+  ctx.stroke();
   return finish(c, k);
 }
