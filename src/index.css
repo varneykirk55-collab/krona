@@ -1,5 +1,44 @@
 @import "tailwindcss";
 
+/* KRONA palette: brass, parchment and ember on near-black */
+@theme {
+  --color-gold: #c9a341;
+  --color-gold-hi: #e8c979;
+  --color-gold-text: #f0d69a;
+  --color-cream: #f6e6b6;
+  --color-parchment: #e8d5a8;
+  --color-wheat: #c6b28a;
+  --color-dusk: #a6906a;
+  --color-dim: #9a8a6c;
+  --color-bronze: #8a6d33;
+  --color-edge: #5e4c2a;
+  --color-ember: #7d4a3c;
+  --color-ember-text: #e8c3b0;
+  --color-ink: #0b1016;
+}
+
+/* surfaces shared by panels and buttons */
+.bg-panel {
+  background: linear-gradient(180deg, rgba(24, 19, 12, 0.96), rgba(12, 10, 8, 0.97));
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(226, 196, 124, 0.12);
+}
+.bg-glass {
+  background: rgba(8, 7, 6, 0.55);
+  backdrop-filter: blur(3px);
+}
+.bg-wood {
+  background: linear-gradient(180deg, rgba(48, 40, 26, 0.92), rgba(22, 19, 12, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 226, 160, 0.14), 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.bg-brass {
+  background: linear-gradient(180deg, #5c4517, #33260c);
+  box-shadow: inset 0 1px 0 rgba(255, 226, 160, 0.18), 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.bg-ember {
+  background: linear-gradient(180deg, #4a221e, #2a1411);
+  box-shadow: inset 0 1px 0 rgba(255, 200, 170, 0.1), 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+
 :root {
   --krona-gold: #c9a341;
   --krona-ink: #0b1016;
