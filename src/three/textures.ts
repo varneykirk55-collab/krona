@@ -551,6 +551,44 @@ export function chipFaceTexture(color: string, edge: string, label: string) {
 /* misc                                                               */
 /* ------------------------------------------------------------------ */
 
+export function runeTexture() {
+  const k = "rune";
+  if (cache.has(k)) return cache.get(k)!;
+  const S = 256;
+  const { c, ctx } = canvas(S, S);
+  ctx.fillStyle = "#20242b";
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = "#c9a341";
+  ctx.lineWidth = 3;
+  ctx.font = "700 40px Georgia, serif";
+  ctx.fillStyle = "#c9a341";
+  const runes = ["\u16A0", "\u16A2", "\u16A5", "\u16A7", "\u16AB", "\u16AF", "\u16B1", "\u16B3", "\u16B7"];
+  for (let i = 0; i < 16; i++) {
+    ctx.fillText(runes[Math.floor(Math.random() * runes.length)], (i % 4) * 64 + 12, Math.floor(i / 4) * 64 + 48);
+  }
+  return finish(c, k, [1, 1]);
+}
+
+/** Simple vertical gradient sky used behind the village windows. */
+export function nightSkyTexture() {
+  const k = "sky";
+  if (cache.has(k)) return cache.get(k)!;
+  const W = 256;
+  const H = 256;
+  const { c, ctx } = canvas(W, H);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#0a1424");
+  g.addColorStop(0.55, "#1d3348");
+  g.addColorStop(1, "#3d5266");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 90; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.6})`;
+    ctx.fillRect(Math.random() * W, Math.random() * H * 0.7, 1.4, 1.4);
+  }
+  return finish(c, k);
+}
+
 export function snowflakeTexture() {
   const k = "snow";
   if (cache.has(k)) return cache.get(k)!;
