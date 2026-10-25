@@ -59,7 +59,7 @@ export function MainMenu({ onExit }: { onExit: () => void }) {
     <div className="absolute inset-0 flex flex-col items-center justify-between py-[2vh] px-4">
       <div className="flex-1 flex flex-col items-center justify-center gap-[2vh] -mt-[1vh]">
         <Title />
-        <div className="flex flex-col gap-2 sm:gap-2.5 mt-2 w-[min(300px,70vw)]">
+        <div className="flex flex-col gap-2 sm:gap-2.5 mt-2 w-[min(300px,70vw)] [&>button]:[@media(max-height:480px)]:py-2">
           <Button size="lg" onClick={() => setScreen("cash-select")}>
             Cash Game
           </Button>
@@ -282,7 +282,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         onBack={onClose}
         right={
           <Segmented
-            className="w-[min(260px,48vw)]"
+            className="w-[min(300px,52vw)]"
             value={tab}
             onChange={setTab}
             options={[

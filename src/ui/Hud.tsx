@@ -207,7 +207,7 @@ function ActionBar() {
   return (
     <div className="absolute inset-x-0 bottom-0 p-2 sm:p-3 flex justify-center pointer-events-none">
       {mode === "raise" ? (
-        <div className="pointer-events-auto w-full max-w-[520px] rounded-lg p-2 sm:p-2.5 bg-glass border border-bronze/70 krona-fade">
+        <div className="pointer-events-auto w-full max-w-[520px] rounded-lg p-2 sm:p-2.5 bg-glass border border-bronze/70">
           <div className="flex items-center gap-2">
             <Caption className="text-wheat shrink-0">{isBet ? "Bet" : "Raise to"}</Caption>
             <input
@@ -474,7 +474,7 @@ function StreetToast() {
   }, [street, snapshot?.handNo]);
   if (!show || !snapshot || snapshot.legal || snapshot.paused || !STREET_LABELS[street]) return null;
   return (
-    <div className="absolute left-1/2 top-[13vh] -translate-x-1/2 pointer-events-none krona-fade">
+    <div className="absolute left-1/2 top-[13vh] -translate-x-1/2 pointer-events-none">
       <div className={cn(PILL, "tracking-[0.3em] uppercase text-parchment border-gold/40")}>{STREET_LABELS[street]}</div>
     </div>
   );

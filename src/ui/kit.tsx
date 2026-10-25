@@ -33,7 +33,7 @@ export function Title({ small = false }: { small?: boolean }) {
         className="font-serif text-transparent bg-clip-text"
         style={{
           backgroundImage: "linear-gradient(180deg,#fdf3cf 0%,#e8c979 38%,#b98f3c 62%,#7d5c1f 100%)",
-          fontSize: small ? "clamp(20px,3.4vw,30px)" : "clamp(38px,9vw,86px)",
+          fontSize: small ? "clamp(20px,3.4vw,30px)" : "clamp(34px,min(9vw,12vh),86px)",
           textShadow: "0 2px 18px rgba(0,0,0,0.75)",
           letterSpacing: small ? "0.28em" : "0.34em",
           paddingLeft: "0.34em",
@@ -43,7 +43,7 @@ export function Title({ small = false }: { small?: boolean }) {
       </div>
       {!small && (
         <>
-          <Ornament className="w-[min(520px,72vw)] h-4 text-gold opacity-80 mt-1" />
+          <Ornament className="w-[min(520px,72vw)] h-3 sm:h-4 text-gold opacity-80 mt-1" />
           <div className="text-[10px] sm:text-xs tracking-[0.5em] text-wheat mt-1 pl-[0.5em] uppercase">Viking Hold&rsquo;em</div>
         </>
       )}
@@ -138,7 +138,7 @@ export function Segmented<T extends string | number>({
             key={String(o.value)}
             onClick={() => onChange(o.value)}
             className={cn(
-              "flex-1 px-2 py-1.5 rounded border text-[10px] sm:text-[11px] uppercase tracking-[0.18em] transition-colors",
+              "flex-1 px-2 py-1.5 rounded border text-[10px] sm:text-[11px] uppercase tracking-[0.18em] whitespace-nowrap transition-colors",
               on ? "border-gold bg-gold/15 text-cream" : "border-edge bg-black/30 text-dim hover:text-wheat",
             )}
           >
@@ -154,7 +154,7 @@ export function Segmented<T extends string | number>({
 export function Overlay({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center p-4 bg-black/75">
-      <Panel className={cn("w-full p-4 sm:p-5 krona-fade", className)}>{children}</Panel>
+      <Panel className={cn("w-full p-4 sm:p-5", className)}>{children}</Panel>
     </div>
   );
 }
