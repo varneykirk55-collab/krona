@@ -3,11 +3,14 @@
  */
 import { useMemo } from "react";
 import * as THREE from "three";
-import { MATS, stadiumGeometry, stadiumRingGeometry } from "./materials";
+import { MATS, MEDALLION_MATS, stadiumGeometry, stadiumRingGeometry, remapUVsPlanar } from "./materials";
 import { TABLE, seatPos, feltPoint } from "../game/view";
 
 export function PokerTable() {
-  const feltGeo = useMemo(() => stadiumGeometry(TABLE.rx, TABLE.rz, 0.06), []);
+  const feltGeo = useMemo(
+    () => remapUVsPlanar(stadiumGeometry(TABLE.rx, TABLE.rz, 0.06), TABLE.rx, TABLE.rz),
+    []
+  );
   const skirtGeo = useMemo(() => stadiumGeometry(TABLE.rx + 0.04, TABLE.rz + 0.04, 0.14), []);
   const railGeo = useMemo(
     () => stadiumRingGeometry(TABLE.railRx, TABLE.railRz, TABLE.rx + 0.02, TABLE.rz - 0.02, 0.19, 0.055, 30),
@@ -18,12 +21,13 @@ export function PokerTable() {
     []
   );
 
+  /** gilded knot discs seated on the padded rail top (rail top y = 0.945) */
   const studs = useMemo(() => {
     const out: [number, number, number][] = [];
-    const N = 26;
+    const N = 10;
     for (let i = 0; i < N; i++) {
-      const a = (i / N) * Math.PI * 2;
-      out.push([Math.sin(a) * (TABLE.railRx + 0.075), TABLE.railY - 0.02, Math.cos(a) * (TABLE.railRz + 0.075)]);
+      const a = (i / N) * Math.PI * 2 + Math.PI / 10;
+      out.push([Math.sin(a) * 1.81, 0.945, Math.cos(a) * 1.19]);
     }
     return out;
   }, []);
@@ -35,59 +39,65 @@ export function PokerTable() {
         <primitive object={feltGeo} attach="geometry" />
       </mesh>
       {/* skirt / carcass */}
-      <mesh geometry={skirtGeo} material={MATS.darkOak} position={[0, TABLE.feltY - 0.2, 0]} castShadow receiveShadow />
+      <mesh geometry={skirtGeo} material={MATS.pedOak} position={[0, TABLE.feltY - 0.2, 0]} castShadow receiveShadow />
       {/* padded leather armrest */}
       <mesh geometry={railGeo} material={MATS.leather} position={[0, TABLE.railY - 0.2, 0]} castShadow receiveShadow />
-      {/* carved oak outer band */}
-      <mesh geometry={bandGeo} material={MATS.oak} position={[0, TABLE.railY - 0.21, 0]} castShadow receiveShadow />
-      {/* brass studs */}
+      {/* carved oak outer band with gilded interlace */}
+      <mesh geometry={bandGeo} material={MATS.band} position={[0, TABLE.railY - 0.21, 0]} castShadow receiveShadow />
+      {/* gilded knot medallions set into the padded rail */}
       {studs.map((p, i) => (
-        <mesh key={i} position={p} material={MATS.brass}>
-          <sphereGeometry args={[0.018, 8, 6]} />
+        <mesh key={i} position={p} material={MEDALLION_MATS as unknown as THREE.Material}>
+          <cylinderGeometry args={[0.055, 0.062, 0.014, 20]} />
         </mesh>
       ))}
-      {/* brass corner fittings */}
-      {[
-        [-(TABLE.railRx - TABLE.railRz), TABLE.railRz + 0.14],
-        [TABLE.railRx - TABLE.railRz, TABLE.railRz + 0.14],
-      ].map(([x, z], i) => (
-        <group key={i} position={[x, TABLE.railY - 0.2, z]}>
-          <mesh rotation={[Math.PI / 2, 0, 0]} material={MATS.brass}>
-            <torusGeometry args={[TABLE.railRz + 0.07, 0.016, 6, 22, Math.PI]} />
+      {/* brass corner fittings: thin trim arcs hugging the rounded end caps
+          of the rail band. Each half-torus is centred on its cap circle
+          (x = ±(railRx - railRz), z = 0) and yawed so the semicircle bulges
+          outward along ±X, sitting proud of the band's outer wall. */}
+      {[-1, 1].map((s) => (
+        <group
+          key={s}
+          position={[s * (TABLE.railRx - TABLE.railRz), 0.8, 0]}
+          rotation={[0, (s * Math.PI) / 2, 0]}
+        >
+          <mesh rotation={[Math.PI / 2, 0, 0]} material={MATS.agedBrass}>
+            <torusGeometry args={[TABLE.railRz + 0.17, 0.012, 6, 22, Math.PI]} />
           </mesh>
         </group>
       ))}
 
       {/* heavy carved base */}
       <group position={[0, 0, 0]}>
-        <mesh position={[0, 0.42, 0]} material={MATS.darkOak} castShadow receiveShadow>
+        <mesh position={[0, 0.42, 0]} material={MATS.pedOak} castShadow receiveShadow>
           <cylinderGeometry args={[0.42, 0.56, 0.5, 16]} />
         </mesh>
-        <mesh position={[0, 0.66, 0]} material={MATS.oak} castShadow receiveShadow>
+        {/* top ends at y=0.70, tucked under the felt (felt underside 0.72) */}
+        <mesh position={[0, 0.54, 0]} material={MATS.pedOak} castShadow receiveShadow>
           <cylinderGeometry args={[0.24, 0.42, 0.32, 16]} />
         </mesh>
-        <mesh position={[0, 0.2, 0]} material={MATS.darkOak} castShadow receiveShadow>
+        <mesh position={[0, 0.2, 0]} material={MATS.pedOak} castShadow receiveShadow>
           <cylinderGeometry args={[0.95, 1.05, 0.18, 20]} />
         </mesh>
         {[0, 1, 2, 3].map((i) => {
           const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
           return (
             <group key={i} position={[Math.sin(a) * 0.72, 0.3, Math.cos(a) * 0.72]} rotation={[0, -a, 0]}>
-              <mesh material={MATS.oak} castShadow receiveShadow>
+              <mesh material={MATS.pedOak} castShadow receiveShadow>
                 <boxGeometry args={[0.18, 0.6, 0.24]} />
               </mesh>
-              <mesh position={[0, 0.24, 0.12]} material={MATS.brass}>
+              <mesh position={[0, 0.24, 0.12]} material={MATS.agedBrass}>
                 <boxGeometry args={[0.14, 0.1, 0.02]} />
               </mesh>
-              <mesh position={[0, -0.24, 0.12]} material={MATS.brass}>
+              <mesh position={[0, -0.24, 0.12]} material={MATS.agedBrass}>
                 <boxGeometry args={[0.14, 0.1, 0.02]} />
               </mesh>
             </group>
           );
         })}
-        {/* carved rune ring on the column */}
-        <mesh position={[0, 0.46, 0]} material={MATS.brass}>
-          <torusGeometry args={[0.47, 0.014, 6, 24]} />
+        {/* carved rune ring on the column (flat, wrapped around the column;
+            column radius at y=0.46 is ~0.48) */}
+        <mesh position={[0, 0.46, 0]} rotation={[Math.PI / 2, 0, 0]} material={MATS.agedBrass}>
+          <torusGeometry args={[0.48, 0.014, 6, 24]} />
         </mesh>
       </group>
 

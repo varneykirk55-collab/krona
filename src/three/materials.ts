@@ -3,7 +3,19 @@
  * Sharing these keeps the draw call count low on mobile GPUs.
  */
 import * as THREE from "three";
-import { woodTexture, feltTexture, cardFaceTexture, cardBackTexture, chipFaceTexture, knotPattern, furTexture } from "./textures";
+import {
+  woodTexture,
+  feltTexture,
+  cardFaceTexture,
+  cardBackTexture,
+  chipFaceTexture,
+  knotPattern,
+  furTexture,
+  leatherTexture,
+  carvedBandTexture,
+  goldDiscTexture,
+  patternBump,
+} from "./textures";
 import { CHIP_DENOMS } from "../game/view";
 
 const c2 = document.createElement("canvas");
@@ -62,10 +74,62 @@ export const MATS = {
   felt: new THREE.MeshStandardMaterial({
     map: feltTexture(),
     color: "#ffffff",
-    roughness: 0.98,
+    roughness: 0.96,
     metalness: 0,
   }),
-  leather: new THREE.MeshStandardMaterial({ color: "#3a2418", roughness: 0.55, metalness: 0.05 }),
+  leather: (() => {
+    const t = leatherTexture();
+    return new THREE.MeshStandardMaterial({
+      map: t.map,
+      bumpMap: t.bump,
+      bumpScale: 0.015,
+      color: "#ffffff",
+      roughness: 0.55,
+      metalness: 0.05,
+    });
+  })(),
+  /** carved oak side band with gilded interlace (table only) */
+  band: (() => {
+    const t = carvedBandTexture();
+    return new THREE.MeshStandardMaterial({
+      map: t.map,
+      bumpMap: t.bump,
+      bumpScale: 0.03,
+      color: "#ffffff",
+      roughness: 0.64,
+      metalness: 0.1,
+    });
+  })(),
+  /** deep handworked oak for the table carcass & pedestal (table only) */
+  pedOak: new THREE.MeshStandardMaterial({
+    map: woodTexture("pedoak", "#241408", "#100804", "#4e3319", [2, 2], 1.2),
+    bumpMap: knotPattern([3, 1]),
+    bumpScale: 0.02,
+    color: "#6a4e33",
+    roughness: 0.66,
+    metalness: 0.04,
+  }),
+  /** aged polished brass with micro-wear, for the table's metal accents */
+  agedBrass: new THREE.MeshStandardMaterial({
+    color: "#b9924a",
+    roughness: 0.4,
+    metalness: 0.9,
+    bumpMap: patternBump("brasswear", (b, S) => {
+      b.lineWidth = 1;
+      b.globalAlpha = 0.35;
+      for (let i = 0; i < 900; i++) {
+        b.strokeStyle = Math.random() > 0.5 ? "#777" : "#aaa";
+        const x = Math.random() * S;
+        const y = Math.random() * S;
+        b.beginPath();
+        b.moveTo(x, y);
+        b.lineTo(x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 3);
+        b.stroke();
+      }
+      b.globalAlpha = 1;
+    }),
+    bumpScale: 0.004,
+  }),
   brass: new THREE.MeshStandardMaterial({ color: "#c9a341", roughness: 0.3, metalness: 0.92 }),
   iron: new THREE.MeshStandardMaterial({ color: "#3b3d40", roughness: 0.42, metalness: 0.86 }),
   stone: new THREE.MeshStandardMaterial({ color: "#6a6459", roughness: 0.92, metalness: 0.02 }),
@@ -85,6 +149,28 @@ export const MATS = {
   cardBack: new THREE.MeshStandardMaterial({ map: cardBackTexture(), roughness: 0.62 }),
   skin: (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 0.68, metalness: 0 }),
 };
+
+/** [side, top, bottom] for the rail medallion discs */
+export const MEDALLION_MATS = [
+  MATS.agedBrass,
+  new THREE.MeshStandardMaterial({ map: goldDiscTexture(), roughness: 0.34, metalness: 0.88 }),
+  MATS.agedBrass,
+] as THREE.Material[];
+
+/**
+ * ExtrudeGeometry emits UVs in metre-scale shape coordinates, which tiles a
+ * texture once per metre. Rewrite them to 0..1 across the stadium footprint
+ * so artwork (the felt flag) appears exactly once, centred.
+ */
+export function remapUVsPlanar(g: THREE.BufferGeometry, rx: number, rz: number) {
+  const pos = g.getAttribute("position");
+  const uv = g.getAttribute("uv");
+  for (let i = 0; i < pos.count; i++) {
+    uv.setXY(i, pos.getX(i) / (2 * rx) + 0.5, pos.getZ(i) / (2 * rz) + 0.5);
+  }
+  uv.needsUpdate = true;
+  return g;
+}
 
 /* ---------------- cards ---------------- */
 
