@@ -53,23 +53,132 @@ function Mat(color: string, rough = 0.72, metal = 0.02, map?: THREE.Texture | nu
 
 type Joint = React.MutableRefObject<THREE.Group | null>;
 
+/** every animated channel of the rig, in radians */
 interface Pose {
   lean: number;
+  roll: number;
+  twist: number;
   headPitch: number;
   headYaw: number;
-  shoulder: [number, number];
-  elbow: [number, number];
-  armOut: [number, number];
+  headRoll: number;
+  shL: number;
+  shR: number;
+  elL: number;
+  elR: number;
+  outL: number;
+  outR: number;
+  legL: number;
+  legR: number;
+  spreadL: number;
+  spreadR: number;
+  kneeL: number;
+  kneeR: number;
 }
 
 const SEATED: Pose = {
   lean: 0.06,
+  roll: 0,
+  twist: 0,
   headPitch: 0.22,
   headYaw: 0,
-  shoulder: [-0.95, -0.95],
-  elbow: [-0.55, -0.55],
-  armOut: [0.22, -0.22],
+  headRoll: 0,
+  shL: -0.95,
+  shR: -0.95,
+  elL: -0.55,
+  elR: -0.55,
+  outL: 0.22,
+  outR: -0.22,
+  legL: -1.5,
+  legR: -1.5,
+  spreadL: 0.06,
+  spreadR: -0.06,
+  kneeL: 1.45,
+  kneeR: 1.45,
 };
+
+/** folded players sit back (lean drops by 0.16) with their arms in their lap */
+const FOLDED: Partial<Pose> = { headPitch: 0.05, shL: -0.35, shR: -0.35, elL: -0.2, elR: -0.2 };
+
+const KEYS = Object.keys(SEATED) as (keyof Pose)[];
+
+/** spring stiffness per channel: heads are quick, torso and legs are heavy */
+const OMEGA: Record<keyof Pose, number> = {
+  lean: 6, roll: 4, twist: 5,
+  headPitch: 10, headYaw: 11, headRoll: 8,
+  shL: 9, shR: 9, elL: 10, elR: 10, outL: 8, outR: 8,
+  legL: 3.5, legR: 3.5, spreadL: 3.5, spreadR: 3.5, kneeL: 3.5, kneeR: 3.5,
+};
+
+const SHOULDER_Y = 0.07;
+
+type GestureKind = "peek" | "deal" | "chips" | "check" | "think";
+
+/** s is a 0..1..0 bell over the gesture; phase runs 0..1 */
+const GESTURES: Record<GestureKind, { dur: number; pose: (p: Pose, s: number, phase: number) => Partial<Pose> }> = {
+  peek: {
+    dur: 2.2,
+    pose: (p, s) => ({ lean: p.lean + s * 0.2, headPitch: p.headPitch + s * 0.45, headYaw: p.headYaw * 0.3, shL: -1.25, shR: -1.3, elL: -1.15, elR: -1.2 }),
+  },
+  deal: {
+    dur: 1.5,
+    pose: (p, s) => ({ lean: p.lean + s * 0.08, headPitch: p.headPitch + s * 0.08, shR: -1.5 + s * 0.2, elR: -0.25 - s * 0.1, outR: -0.12 - s * 0.06 }),
+  },
+  chips: {
+    dur: 1.6,
+    pose: (p, s) => ({ lean: p.lean + s * 0.06, headPitch: p.headPitch + s * 0.1, shR: -1.1 - s * 0.25, elR: -0.7 - s * 0.35 }),
+  },
+  check: {
+    // two knuckle raps on the table
+    dur: 1.2,
+    pose: (p, _s, phase) => ({ shR: -1.15, elR: -0.9 + Math.max(0, Math.sin(phase * Math.PI * 4)) * 0.45, headPitch: p.headPitch + 0.06 }),
+  },
+  think: {
+    // hand to the chin, head cocked
+    dur: 2.8,
+    pose: (p, s) => ({ headYaw: p.headYaw + s * 0.32, headPitch: p.headPitch + s * 0.12, headRoll: s * 0.07, shL: -1.2, elL: -1.4 }),
+  },
+};
+
+interface Layer {
+  kind: GestureKind;
+  start: number;
+  release: number;
+}
+
+function smooth01(x: number) {
+  const c = Math.min(1, Math.max(0, x));
+  return c * c * (3 - 2 * c);
+}
+
+/** layer weight: eased in and out, and faded early if a newer gesture took over */
+function layerWeight(l: Layer, t: number) {
+  const dur = GESTURES[l.kind].dur;
+  const gt = t - l.start;
+  let w = smooth01(gt / 0.28) * (1 - smooth01((gt - (dur - 0.4)) / 0.4));
+  if (l.release >= 0) w *= 1 - smooth01((t - l.release) / 0.32);
+  return w;
+}
+
+/** critically damped spring, stable at any frame time */
+function damp(x: number, v: number, target: number, omega: number, dt: number): [number, number] {
+  const o = omega * dt;
+  const e = 1 / (1 + o + 0.48 * o * o + 0.235 * o * o * o);
+  const change = x - target;
+  const temp = (v + omega * change) * dt;
+  return [target + (change + temp) * e, (v - omega * temp) * e];
+}
+
+/** asymmetric breath: quicker inhale, longer exhale, 0..1 */
+function breathCurve(phase: number) {
+  const x = phase - Math.floor(phase);
+  return x < 0.4 ? smooth01(x / 0.4) : 1 - smooth01((x - 0.4) / 0.6);
+}
+
+function wrapAngle(a: number) {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 
 export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMember }) {
   const p = seatPos(seatIndex);
@@ -110,22 +219,55 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
   const thR = useRef<THREE.Group>(null);
   const knL = useRef<THREE.Group>(null);
   const knR = useRef<THREE.Group>(null);
+  const eyeL = useRef<THREE.Mesh>(null);
+  const eyeR = useRef<THREE.Mesh>(null);
 
   const anim = useRef({
-    gesture: "idle" as string,
-    gestureT: -1,
     seed: Math.random() * 100,
     dealt: 0,
     checkAt: 0,
-    cur: { ...SEATED, shoulder: [...SEATED.shoulder], elbow: [...SEATED.elbow], armOut: [...SEATED.armOut] } as Pose,
+    lastHa: -1,
+    lastActor: -1,
+    layers: [] as Layer[],
+    cur: { ...SEATED } as Pose,
+    vel: Object.fromEntries(KEYS.map((k) => [k, 0])) as unknown as Pose,
     folded: false,
-    speaking: 0,
+    foldW: 0,
+    // breathing: per-character rate, phase accumulates so rate changes never jump
+    breathRate: rand(0.19, 0.26),
+    breathPhase: Math.random(),
+    // weight shifts: an offset pose eased slowly toward a new random target
+    shiftAt: rand(2, 7),
+    shift: {} as Partial<Pose>,
+    shiftCur: {} as Partial<Pose>,
+    // gaze: where the head is looking until gazeUntil, then back to the table
+    gazeYaw: 0,
+    gazePitch: 0,
+    gazeUntil: 0,
+    nextGlance: rand(2, 6),
+    blinkAt: rand(1, 5),
   });
 
   useFrame((state, dt) => {
     const a = anim.current;
     const t = state.clock.elapsedTime + a.seed;
     const now = performance.now();
+
+    const startGesture = (kind: GestureKind) => {
+      for (const l of a.layers) if (l.release < 0) l.release = t;
+      a.layers.push({ kind, start: t, release: -1 });
+    };
+    const lookAt = (x: number, z: number, pitch: number, hold: number) => {
+      const yaw = THREE.MathUtils.clamp(wrapAngle(Math.atan2(x - p.x, z - p.z) - facing), -1.05, 1.05);
+      if (Math.abs(yaw - a.gazeYaw) > 0.4) a.blinkAt = t;
+      a.gazeYaw = yaw;
+      a.gazePitch = pitch;
+      a.gazeUntil = t + hold;
+    };
+    const lookAtSeat = (j: number, hold: number) => {
+      const q = seatPos(j);
+      lookAt(q.x, q.z, j === 0 ? -0.02 : 0.04, hold);
+    };
 
     // ---- read public game state (cheap, throttled) ----
     if (now - a.checkAt > 220) {
@@ -134,111 +276,139 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
       const mine = v.cards.filter((c) => c.holder === seatIndex).length;
       if (mine > a.dealt) {
         a.dealt = mine;
-        a.gesture = "peek";
-        a.gestureT = t;
+        startGesture("peek");
       } else if (mine < a.dealt) a.dealt = mine;
       const ha = v.handAction;
-      if (ha && ha.seat === seatIndex && ha.t !== (a as unknown as { lastHa?: number }).lastHa) {
-        (a as unknown as { lastHa?: number }).lastHa = ha.t;
-        if (ha.kind === "fold") a.folded = true;
-        else if (ha.kind === "check") a.gesture = "check";
-        else if (ha.kind === "chips") a.gesture = "chips";
-        else if (ha.kind === "deal" || ha.kind === "deal-self") a.gesture = "deal";
-        else if (ha.kind === "think") a.gesture = "think";
-        if (ha.kind !== "fold") a.folded = false;
-        a.gestureT = t;
+      if (ha && ha.t !== a.lastHa) {
+        a.lastHa = ha.t;
+        if (ha.seat === seatIndex) {
+          if (ha.kind === "fold") a.folded = true;
+          else if (ha.kind === "check") startGesture("check");
+          else if (ha.kind === "chips") startGesture("chips");
+          else if (ha.kind === "deal" || ha.kind === "deal-self") startGesture("deal");
+          else if (ha.kind === "think") startGesture("think");
+          if (ha.kind !== "fold") a.folded = false;
+        } else if (ha.kind !== "deal" && ha.kind !== "deal-self" && Math.random() < 0.6) {
+          // someone else bet, checked or folded: most of the table looks over
+          lookAtSeat(ha.seat, rand(0.9, 1.8));
+        }
       }
-      const seat = game.engine?.state.seats[seatIndex];
+      const st = game.engine?.state;
+      const seat = st?.seats[seatIndex];
       if (seat) a.folded = seat.folded;
-    }
-
-    // ---- target pose ----
-    const target: Pose = {
-      lean: SEATED.lean,
-      headPitch: SEATED.headPitch,
-      headYaw: Math.sin(t * 0.21) * 0.14,
-      shoulder: [...SEATED.shoulder],
-      elbow: [...SEATED.elbow],
-      armOut: [...SEATED.armOut],
-    };
-
-    const breathe = Math.sin(t * 1.15) * 0.5 + 0.5;
-    target.lean += breathe * 0.022 + Math.sin(t * 0.33) * 0.012;
-    target.headPitch += Math.sin(t * 0.47) * 0.03;
-    target.shoulder[0] += Math.sin(t * 0.9) * 0.03;
-    target.shoulder[1] += Math.sin(t * 0.9 + 1) * 0.03;
-
-    if (a.folded) {
-      target.lean -= 0.16;
-      target.headPitch = 0.05;
-      target.shoulder = [-0.35, -0.35];
-      target.elbow = [-0.2, -0.2];
-    }
-
-    const gt = t - a.gestureT;
-    const g = a.gesture;
-    if (g !== "idle" && gt < 2.4) {
-      // bell curve envelope so gestures ease in and out
-      const env = Math.sin(Math.min(1, gt / 1.6) * Math.PI);
-      if (g === "peek") {
-        target.lean += env * 0.2;
-        target.headPitch += env * 0.5;
-        target.shoulder = [-1.25, -1.3];
-        target.elbow = [-1.15, -1.2];
-      } else if (g === "deal") {
-        target.shoulder[1] = -1.5 + env * 0.2;
-        target.elbow[1] = -0.25 - env * 0.1;
-        target.armOut[1] = -0.12 - env * 0.06;
-        target.lean += env * 0.08;
-      } else if (g === "chips") {
-        target.shoulder[1] = -1.1 - env * 0.25;
-        target.elbow[1] = -0.7 - env * 0.35;
-        target.lean += env * 0.06;
-      } else if (g === "check") {
-        target.shoulder[1] = -1.15;
-        target.elbow[1] = -0.9 + env * 0.5;
-      } else if (g === "think") {
-        target.headYaw += env * 0.32;
-        target.headPitch += env * 0.12;
-        target.shoulder[0] = -1.2;
-        target.elbow[0] = -1.4;
+      const actor = st?.actionSeat ?? -1;
+      if (actor !== a.lastActor) {
+        a.lastActor = actor;
+        if (actor >= 0 && actor !== seatIndex && Math.random() < 0.45) lookAtSeat(actor, rand(1.2, 2.4));
       }
-    } else if (g !== "idle") {
-      a.gesture = "idle";
     }
 
-    // ---- smooth toward the target ----
-    const k = Math.min(1, dt * 6.5);
+    // ---- idle glances: neighbours, the pot, the player ----
+    if (t > a.nextGlance) {
+      a.nextGlance = t + rand(3, 8) * (a.folded ? 0.7 : 1);
+      if (t > a.gazeUntil) {
+        const r = Math.random();
+        const n = game.engine?.state.seats.length ?? 8;
+        if (r < 0.3) lookAt(0, 0, 0.32, rand(1, 2.2));
+        else if (r < 0.55) lookAtSeat(0, rand(0.8, 1.6));
+        else lookAtSeat((seatIndex + (Math.random() < 0.5 ? 1 : n - 1) * (Math.random() < 0.7 ? 1 : 2)) % n, rand(0.8, 1.8));
+      }
+    }
+    const gazing = t < a.gazeUntil;
+
+    // ---- weight shifts every few seconds ----
+    if (t > a.shiftAt) {
+      a.shiftAt = t + rand(5, 12);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const foot = Math.random() < 0.35 ? (Math.random() < 0.5 ? "L" : "R") : null;
+      a.shift = {
+        roll: side * rand(0.012, 0.035),
+        twist: rand(-0.06, 0.06),
+        lean: rand(-0.025, 0.03),
+        spreadL: rand(-0.03, 0.06),
+        spreadR: -rand(-0.03, 0.06),
+        legL: foot === "L" ? 0.08 : 0,
+        kneeL: foot === "L" ? -0.22 : 0,
+        legR: foot === "R" ? 0.08 : 0,
+        kneeR: foot === "R" ? -0.22 : 0,
+      };
+    }
+    const sk = 1 - Math.exp(-dt * 0.9);
+    for (const k of KEYS) {
+      const cur = a.shiftCur[k] ?? 0;
+      a.shiftCur[k] = cur + ((a.shift[k] ?? 0) - cur) * sk;
+    }
+
+    // ---- target pose: rest + weight shift + micro-sway + gaze ----
+    const target = { ...SEATED };
+    for (const k of KEYS) target[k] += a.shiftCur[k] ?? 0;
+    target.lean += Math.sin(t * 0.33) * 0.01;
+    target.roll += Math.sin(t * 0.27) * 0.006;
+    target.headPitch += Math.sin(t * 0.47) * 0.025;
+    target.headYaw += Math.sin(t * 0.21) * 0.08 + Math.sin(t * 0.53) * 0.03;
+    target.shL += Math.sin(t * 0.9) * 0.025;
+    target.shR += Math.sin(t * 0.9 + 1) * 0.025;
+    if (gazing) {
+      target.headYaw = a.gazeYaw;
+      target.headPitch = a.gazePitch;
+      target.twist += a.gazeYaw * 0.2;
+      target.headRoll += -a.gazeYaw * 0.04;
+    }
+
+    a.foldW += ((a.folded ? 1 : 0) - a.foldW) * (1 - Math.exp(-dt * 2.5));
+    target.lean -= 0.16 * a.foldW;
+    for (const k of Object.keys(FOLDED) as (keyof Pose)[]) target[k] += (FOLDED[k]! - target[k]) * a.foldW;
+
+    // ---- gesture layers, blended in order ----
+    a.layers = a.layers.filter((l) => t - l.start < GESTURES[l.kind].dur && !(l.release >= 0 && t - l.release > 0.32));
+    for (const l of a.layers) {
+      const w = layerWeight(l, t);
+      if (w <= 0) continue;
+      const g = GESTURES[l.kind];
+      const phase = (t - l.start) / g.dur;
+      const gp = g.pose(target, Math.sin(phase * Math.PI), phase);
+      for (const k of Object.keys(gp) as (keyof Pose)[]) target[k] += (gp[k]! - target[k]) * w;
+    }
+
+    // ---- springs toward the target ----
     const c = a.cur;
-    c.lean += (target.lean - c.lean) * k;
-    c.headPitch += (target.headPitch - c.headPitch) * k;
-    c.headYaw += (target.headYaw - c.headYaw) * k;
-    for (let i = 0; i < 2; i++) {
-      c.shoulder[i] += (target.shoulder[i] - c.shoulder[i]) * k;
-      c.elbow[i] += (target.elbow[i] - c.elbow[i]) * k;
-      c.armOut[i] += (target.armOut[i] - c.armOut[i]) * k;
-    }
+    const vel = a.vel;
+    for (const k of KEYS) [c[k], vel[k]] = damp(c[k], vel[k], target[k], OMEGA[k], dt);
 
-    if (spine.current) spine.current.rotation.x = c.lean;
+    // ---- breathing on top of the sprung pose ----
+    a.breathPhase += dt * a.breathRate * (1 + 0.12 * Math.sin(t * 0.07));
+    const b = breathCurve(a.breathPhase);
+
+    if (body.current) {
+      body.current.position.y = 0.52 + b * 0.003;
+      body.current.rotation.z = c.roll;
+    }
+    if (spine.current) spine.current.rotation.set(c.lean + b * 0.016, c.twist * 0.5, -c.roll * 0.5);
     if (chest.current) {
-      chest.current.rotation.x = c.lean * 0.5;
-      chest.current.scale.set(1 + breathe * 0.014, 1, 1 + breathe * 0.022);
+      chest.current.rotation.set(c.lean * 0.5, c.twist * 0.5, -c.roll * 0.4);
+      chest.current.scale.set(1 + b * 0.014, 1 + b * 0.006, 1 + b * 0.024);
     }
-    if (neck.current) neck.current.rotation.x = c.lean * 0.4;
-    if (head.current) {
-      head.current.rotation.x = c.headPitch - c.lean * 0.4;
-      head.current.rotation.y = c.headYaw;
-    }
-    setJoint(shL, [c.shoulder[0], c.armOut[0], 0]);
-    setJoint(shR, [c.shoulder[1], c.armOut[1], 0]);
-    setJoint(elL, [c.elbow[0], 0, 0]);
-    setJoint(elR, [c.elbow[1], 0, 0]);
-    setJoint(thL, [-1.5, 0.06 + Math.sin(t * 0.5) * 0.02, 0]);
-    setJoint(thR, [-1.5, -0.06, 0]);
-    setJoint(knL, [1.45, 0, 0]);
-    setJoint(knR, [1.45, 0, 0]);
-    if (body.current) body.current.position.y = 0.52 + Math.sin(t * 0.9) * 0.0028;
-    if (root.current) root.current.rotation.z = Math.sin(t * 0.27) * 0.008;
+    // the head holds its gaze while the torso twists beneath it
+    const look = c.headYaw - c.twist;
+    if (neck.current) neck.current.rotation.set(c.lean * 0.4, look * 0.3, 0);
+    if (head.current) head.current.rotation.set(c.headPitch - c.lean * 0.4 - b * 0.012, look * 0.7, c.headRoll - c.roll * 0.1);
+    setJoint(shL, [c.shL, c.outL, 0]);
+    setJoint(shR, [c.shR, c.outR, 0]);
+    if (shL.current) shL.current.position.y = SHOULDER_Y + b * 0.005;
+    if (shR.current) shR.current.position.y = SHOULDER_Y + b * 0.005;
+    setJoint(elL, [c.elL, 0, 0]);
+    setJoint(elR, [c.elR, 0, 0]);
+    setJoint(thL, [c.legL, c.spreadL, 0]);
+    setJoint(thR, [c.legR, c.spreadR, 0]);
+    setJoint(knL, [c.kneeL, 0, 0]);
+    setJoint(knR, [c.kneeR, 0, 0]);
+
+    // ---- blinks ----
+    if (t > a.blinkAt + 0.16) a.blinkAt = t + rand(2, 6) * (Math.random() < 0.15 ? 0.15 : 1);
+    const bt = (t - a.blinkAt) / 0.16;
+    const lid = bt >= 0 && bt <= 1 ? 1 - Math.sin(bt * Math.PI) * 0.88 : 1;
+    if (eyeL.current) eyeL.current.scale.y = lid;
+    if (eyeR.current) eyeR.current.scale.y = lid;
   });
 
   const female = cast.gender === "f";
@@ -294,8 +464,8 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
                 <mesh geometry={G.ear} material={M.skin} position={[0.098, 0, 0]} scale={[0.6, 1, 0.8]} />
                 <mesh geometry={G.ear} material={M.skin} position={[-0.098, 0, 0]} scale={[0.6, 1, 0.8]} />
                 {/* eyes + brows */}
-                <mesh geometry={G.eye} material={M.eye} position={[0.038, 0.016, 0.089]} />
-                <mesh geometry={G.eye} material={M.eye} position={[-0.038, 0.016, 0.089]} />
+                <mesh ref={eyeL} geometry={G.eye} material={M.eye} position={[0.038, 0.016, 0.089]} />
+                <mesh ref={eyeR} geometry={G.eye} material={M.eye} position={[-0.038, 0.016, 0.089]} />
                 <mesh geometry={G.brow} material={M.hair} position={[0.038, 0.043, 0.09]} rotation={[0, 0, 0.12]} />
                 <mesh geometry={G.brow} material={M.hair} position={[-0.038, 0.043, 0.09]} rotation={[0, 0, -0.12]} />
                 {/* hair */}
@@ -354,7 +524,7 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
             </group>
 
             {/* arms */}
-            <group ref={shL} position={[0.195, 0.07, 0]}>
+            <group ref={shL} position={[0.195, SHOULDER_Y, 0]}>
               <mesh geometry={G.upperArm} material={M.tunic} position={[0, -0.15, 0]} castShadow />
               <group ref={elL} position={[0, -0.3, 0]}>
                 <mesh geometry={G.forearm} material={M.skin} position={[0, -0.15, 0]} castShadow />
@@ -364,7 +534,7 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
                 <mesh geometry={G.handL} material={M.skin} position={[0, -0.29, 0]} castShadow />
               </group>
             </group>
-            <group ref={shR} position={[-0.195, 0.07, 0]}>
+            <group ref={shR} position={[-0.195, SHOULDER_Y, 0]}>
               <mesh geometry={G.upperArm} material={M.tunic} position={[0, -0.15, 0]} castShadow />
               <group ref={elR} position={[0, -0.3, 0]}>
                 <mesh geometry={G.forearm} material={M.skin} position={[0, -0.15, 0]} castShadow />
