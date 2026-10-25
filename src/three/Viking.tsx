@@ -13,6 +13,8 @@ import { CastMember, CLOAK_COLORS, HAIR_COLORS, SKIN_COLORS, TUNIC_COLORS } from
 import { seatPos } from "../game/view";
 import { game } from "../game/controller";
 import { knotPattern } from "./textures";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { handGeometry, taperedCapsule } from "./proceduralHands";
 
 /** proportions for a ~1.70 m figure (local units are metres) */
 const G = {
@@ -28,12 +30,13 @@ const G = {
   hairCap: new THREE.SphereGeometry(0.116, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
   braid: new THREE.CapsuleGeometry(0.024, 0.15, 4, 8),
   beard: new THREE.SphereGeometry(0.092, 12, 10),
-  upperArm: new THREE.CapsuleGeometry(0.056, 0.22, 4, 10),
-  forearm: new THREE.CapsuleGeometry(0.047, 0.22, 4, 10),
-  hand: new THREE.SphereGeometry(0.05, 10, 8),
-  thigh: new THREE.CapsuleGeometry(0.086, 0.3, 4, 12),
-  shin: new THREE.CapsuleGeometry(0.066, 0.3, 4, 10),
-  foot: new THREE.BoxGeometry(0.09, 0.05, 0.22),
+  upperArm: taperedCapsule(0.056, 0.22, 0.82),
+  forearm: taperedCapsule(0.047, 0.22, 0.64),
+  handL: handGeometry(1),
+  handR: handGeometry(-1),
+  thigh: taperedCapsule(0.086, 0.3, 0.8),
+  shin: taperedCapsule(0.066, 0.3, 0.7),
+  foot: new RoundedBoxGeometry(0.09, 0.05, 0.22, 3, 0.012),
   shoulder: new THREE.SphereGeometry(0.076, 10, 8),
   skirt: new THREE.CylinderGeometry(0.2, 0.26, 0.3, 14, 1, true),
   cloak: new THREE.CylinderGeometry(0.21, 0.34, 0.66, 14, 1, true, Math.PI * 0.15, Math.PI * 1.5),
@@ -279,8 +282,8 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
           <group ref={chest} position={[0, 0.44, 0]}>
             <mesh geometry={G.torso} material={M.tunic} position={[0, 0.02, 0]} scale={[0.95, 0.62, 0.9]} castShadow />
             {/* shoulders */}
-            <mesh geometry={G.shoulder} material={M.tunic} position={[0.19, 0.08, 0]} castShadow />
-            <mesh geometry={G.shoulder} material={M.tunic} position={[-0.19, 0.08, 0]} castShadow />
+            <mesh geometry={G.shoulder} material={M.tunic} position={[0.19, 0.08, 0]} scale={[1.12, 0.8, 1.05]} castShadow />
+            <mesh geometry={G.shoulder} material={M.tunic} position={[-0.19, 0.08, 0]} scale={[1.12, 0.8, 1.05]} castShadow />
             {/* neck + head */}
             <group ref={neck} position={[0, 0.1, 0]}>
               <mesh geometry={G.neck} material={M.skin} position={[0, 0.03, 0]} />
@@ -358,7 +361,7 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
                 {cast.accessory === "armring" && (
                   <mesh geometry={G.armring} material={M.brass} position={[0, -0.1, 0]} rotation={[Math.PI / 2, 0, 0]} />
                 )}
-                <mesh geometry={G.hand} material={M.skin} position={[0, -0.29, 0]} scale={[1, 1.15, 0.75]} castShadow />
+                <mesh geometry={G.handL} material={M.skin} position={[0, -0.29, 0]} castShadow />
               </group>
             </group>
             <group ref={shR} position={[-0.195, 0.07, 0]}>
@@ -368,7 +371,7 @@ export function Viking({ seatIndex, cast }: { seatIndex: number; cast: CastMembe
                 {cast.accessory === "armring" && (
                   <mesh geometry={G.armring} material={M.brass} position={[0, -0.1, 0]} rotation={[Math.PI / 2, 0, 0]} />
                 )}
-                <mesh geometry={G.hand} material={M.skin} position={[0, -0.29, 0]} scale={[1, 1.15, 0.75]} castShadow />
+                <mesh geometry={G.handR} material={M.skin} position={[0, -0.29, 0]} castShadow />
               </group>
             </group>
           </group>
